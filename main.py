@@ -553,6 +553,10 @@ class MyApp(QWidget):
 
         self.setLayout(self.layout)
 
+        app = QApplication.instance()
+        if app is not None:
+            app.setQuitOnLastWindowClosed(False)
+
         self.setWindowTitle('DC 새글 알리미')
         self.setWindowIcon(QIcon(resource_path('icon.png')))
         self.setup_tray_icon()
@@ -608,6 +612,16 @@ class MyApp(QWidget):
         self.passwdLE.setText(init_config['passwd'])
         self.trayEnableCB.setChecked(init_config.get('system_tray_enabled', False))
 
+    def stop_notification_thread(self):
+        if not self.thread:
+            return
+        if self.thread.isRunning():
+            self.stop.emit()
+            if not self.thread.wait(5000):
+                self.thread.terminate()
+                self.thread.wait()
+        self.thread = None
+
     def setup_tray_icon(self):
         if self.tray_icon is not None:
             return
@@ -616,6 +630,12 @@ class MyApp(QWidget):
             self.trayEnableCB.setEnabled(False)
             return
         icon = QIcon(resource_path('icon.png'))
+        if icon.isNull():
+            icon = self.windowIcon()
+        if icon.isNull():
+            app = QApplication.instance()
+            if app is not None:
+                icon = app.style().standardIcon(QStyle.SP_ComputerIcon)
         self.tray_icon = QSystemTrayIcon(icon, self)
         self.tray_icon.setToolTip(self.windowTitle())
         self.tray_menu = QMenu(self)
@@ -684,9 +704,13 @@ class MyApp(QWidget):
             event.ignore()
             self.hide_to_tray()
             return
+        self.stop_notification_thread()
         if self.tray_icon:
             self.tray_icon.hide()
         super().closeEvent(event)
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def center(self):
         qr = self.frameGeometry()
