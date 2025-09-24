@@ -51,7 +51,7 @@ import smtplib
 import cerberus
 from email.message import EmailMessage
 
-version = '1.8.1'
+version = '1.8.1a'
 
 class get_default_logger(object):
     def __new__(cls):
@@ -80,7 +80,8 @@ class get_validator(object):
                 'keyword_list': {'type': 'list', 'schema': {'type': 'string'}},
                 'notify_type': {'type': 'dict', 'schema': {'Desktop': {'type': 'boolean'}, 'Mobile': {'type': 'boolean'}}},
                 'email': {'type': 'string'},
-                'passwd': {'type': 'string'}
+                'passwd': {'type': 'string'},
+                'system_tray_enabled': {'type': 'boolean', 'required': False}
             }
             cls.instance = cerberus.Validator(schema, require_all=True)
         return cls.instance
@@ -97,6 +98,7 @@ class get_default_config(object):
             default_config['notify_type'] = {'Desktop': True, 'Mobile': False}
             default_config['email'] = ''
             default_config['passwd'] = ''
+            default_config['system_tray_enabled'] = True
             cls.instance = default_config
         return cls.instance
 
@@ -178,6 +180,13 @@ def send_email(subject, content, email, passwd):
     else:
         return None
 
+
+def ensure_config_defaults(config):
+    config = dict(config)
+    if 'system_tray_enabled' not in config:
+        config['system_tray_enabled'] = True
+    return config
+
 def load_config():
     if os.path.exists('config.yaml'):
         try:
@@ -190,10 +199,11 @@ def load_config():
             config_data = list()
             for i in range(len(yaml_data)):
                 if get_validator().validate(yaml_data[i]):
-                    if yaml_data[i]['config_name'] == 'default':
-                        config_data.insert(0, yaml_data[i])
+                    config_item = ensure_config_defaults(yaml_data[i])
+                    if config_item['config_name'] == 'default':
+                        config_data.insert(0, config_item)
                     else:
-                        config_data.append(yaml_data[i])
+                        config_data.append(config_item)
                 else:
                     get_default_logger().warning('검증에 실패한 config를 제외했습니다.', exc_info=ValueError(f'Invalid Config: {yaml_data[i]}'))
             if len(config_data) == 0 or config_data[0]['config_name'] != 'default':
@@ -384,8 +394,14 @@ class MyApp(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.initUI()
         self.thread = None
+        self.tray_icon = None
+        self.tray_menu = None
+        self.restoreAction = None
+        self.quitAction = None
+        self._allow_close = False
+        self._tray_message_shown = False
+        self.initUI()
 
     def get_main_UI(self):
         widget = QWidget(self)
@@ -480,6 +496,8 @@ class MyApp(QWidget):
         self.passwdLE = QLineEdit('', self)
         self.passwdLE.setEchoMode(QLineEdit.Password)
 
+        self.trayEnableCB = QCheckBox('??? ??? ??', self)
+
         self.configLW = QListWidget(self)
         self.configLW.itemDoubleClicked.connect(self.configEdit)
         self.configLW.itemClicked.connect(self.configChanged)
@@ -509,11 +527,12 @@ class MyApp(QWidget):
         grid.addWidget(self.emailLE, 2, 1, 1, 4)
         grid.addWidget(self.passwdLb, 3, 0)
         grid.addWidget(self.passwdLE, 3, 1, 1, 4)
-        grid.addWidget(self.configLW, 4, 0, 4, 4)
-        grid.addWidget(self.saveBtn, 4, 4)
-        grid.addWidget(self.loadBtn, 5, 4)
-        grid.addWidget(self.resetBtn, 6, 4)
-        grid.addWidget(self.mainBtn, 7, 4)
+        grid.addWidget(self.trayEnableCB, 4, 0, 1, 5)
+        grid.addWidget(self.configLW, 5, 0, 4, 4)
+        grid.addWidget(self.saveBtn, 5, 4)
+        grid.addWidget(self.loadBtn, 6, 4)
+        grid.addWidget(self.resetBtn, 7, 4)
+        grid.addWidget(self.mainBtn, 8, 4)
 
         return widget
 
@@ -536,6 +555,9 @@ class MyApp(QWidget):
 
         self.setWindowTitle('DC 새글 알리미')
         self.setWindowIcon(QIcon(resource_path('icon.png')))
+        self.setup_tray_icon()
+        self.trayEnableCB.stateChanged.connect(self.update_tray_icon_state)
+        self.update_tray_icon_state()
         self.setFixedSize(self.sizeHint())
         self.center()
         self.show()
@@ -554,6 +576,7 @@ class MyApp(QWidget):
         current_config['notify_type'] = {'Desktop': use_desktop, 'Mobile': use_mobile}
         current_config['email'] = self.emailLE.text()
         current_config['passwd'] = self.passwdLE.text()
+        current_config['system_tray_enabled'] = self.trayEnableCB.isChecked()
         return current_config
 
     def set_config(self, init_config):
@@ -583,6 +606,7 @@ class MyApp(QWidget):
             self.nt_desktopRB.setChecked(True)
         self.emailLE.setText(init_config['email'])
         self.passwdLE.setText(init_config['passwd'])
+        self.trayEnableCB.setChecked(init_config.get('system_tray_enabled', True))
 
     def center(self):
         qr = self.frameGeometry()
