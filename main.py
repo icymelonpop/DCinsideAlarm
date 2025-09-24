@@ -98,7 +98,7 @@ class get_default_config(object):
             default_config['notify_type'] = {'Desktop': True, 'Mobile': False}
             default_config['email'] = ''
             default_config['passwd'] = ''
-            default_config['system_tray_enabled'] = True
+            default_config['system_tray_enabled'] = False
             cls.instance = default_config
         return cls.instance
 
@@ -184,7 +184,7 @@ def send_email(subject, content, email, passwd):
 def ensure_config_defaults(config):
     config = dict(config)
     if 'system_tray_enabled' not in config:
-        config['system_tray_enabled'] = True
+        config['system_tray_enabled'] = False
     return config
 
 def load_config():
@@ -496,7 +496,7 @@ class MyApp(QWidget):
         self.passwdLE = QLineEdit('', self)
         self.passwdLE.setEchoMode(QLineEdit.Password)
 
-        self.trayEnableCB = QCheckBox('??? ??? ??', self)
+        self.trayEnableCB = QCheckBox('시스템 트레이 사용', self)
 
         self.configLW = QListWidget(self)
         self.configLW.itemDoubleClicked.connect(self.configEdit)
@@ -606,7 +606,87 @@ class MyApp(QWidget):
             self.nt_desktopRB.setChecked(True)
         self.emailLE.setText(init_config['email'])
         self.passwdLE.setText(init_config['passwd'])
-        self.trayEnableCB.setChecked(init_config.get('system_tray_enabled', True))
+        self.trayEnableCB.setChecked(init_config.get('system_tray_enabled', False))
+
+    def setup_tray_icon(self):
+        if self.tray_icon is not None:
+            return
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            self.trayEnableCB.setChecked(False)
+            self.trayEnableCB.setEnabled(False)
+            return
+        icon = QIcon(resource_path('icon.png'))
+        self.tray_icon = QSystemTrayIcon(icon, self)
+        self.tray_icon.setToolTip(self.windowTitle())
+        self.tray_menu = QMenu(self)
+        self.restoreAction = QAction('창 열기', self)
+        self.restoreAction.triggered.connect(self.restore_from_tray)
+        self.quitAction = QAction('완전히 종료', self)
+        self.quitAction.triggered.connect(self.exit_from_tray)
+        self.tray_menu.addAction(self.restoreAction)
+        self.tray_menu.addSeparator()
+        self.tray_menu.addAction(self.quitAction)
+        self.tray_icon.setContextMenu(self.tray_menu)
+        self.tray_icon.activated.connect(self.on_tray_activated)
+
+    def update_tray_icon_state(self):
+        if not self.tray_icon:
+            return
+        enabled = self.trayEnableCB.isChecked()
+        self.tray_icon.setToolTip(self.windowTitle())
+        if enabled:
+            self.tray_icon.show()
+            self._tray_message_shown = False
+        else:
+            self.tray_icon.hide()
+            if not self.isVisible():
+                self.restore_from_tray()
+            self._tray_message_shown = False
+
+    def hide_to_tray(self):
+        if not self.tray_icon or not self.trayEnableCB.isChecked():
+            return
+        self.tray_icon.show()
+        self.hide()
+        if not self._tray_message_shown and QSystemTrayIcon.supportsMessages():
+            self.tray_icon.showMessage(
+                'DCinsideAlarm',
+                '프로그램이 시스템 트레이에서 실행 중입니다.',
+                QSystemTrayIcon.Information,
+                3000
+            )
+            self._tray_message_shown = True
+
+    def restore_from_tray(self):
+        self.showNormal()
+        self.setWindowState((self.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive)
+        self.raise_()
+        self.activateWindow()
+
+    def exit_from_tray(self):
+        self._allow_close = True
+        if self.tray_icon:
+            self.tray_icon.hide()
+        self.close()
+
+    def on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            self.restore_from_tray()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.WindowStateChange and self.trayEnableCB.isChecked():
+            if self.isMinimized():
+                QTimer.singleShot(0, self.hide_to_tray)
+
+    def closeEvent(self, event):
+        if self.trayEnableCB.isChecked() and not self._allow_close:
+            event.ignore()
+            self.hide_to_tray()
+            return
+        if self.tray_icon:
+            self.tray_icon.hide()
+        super().closeEvent(event)
 
     def center(self):
         qr = self.frameGeometry()
