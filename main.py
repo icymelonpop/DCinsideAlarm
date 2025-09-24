@@ -612,6 +612,10 @@ class MyApp(QWidget):
         self.passwdLE.setText(init_config['passwd'])
         self.trayEnableCB.setChecked(init_config.get('system_tray_enabled', False))
 
+    def is_notification_running(self):
+        thread_running = self.thread is not None and self.thread.isRunning()
+        return thread_running or self.startBtn.text() == '??'
+
     def stop_notification_thread(self):
         if not self.thread:
             return
@@ -700,7 +704,7 @@ class MyApp(QWidget):
                 QTimer.singleShot(0, self.hide_to_tray)
 
     def closeEvent(self, event):
-        if self.trayEnableCB.isChecked() and not self._allow_close:
+        if self.trayEnableCB.isChecked() and not self._allow_close and self.is_notification_running():
             event.ignore()
             self.hide_to_tray()
             return
