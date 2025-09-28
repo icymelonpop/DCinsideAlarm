@@ -137,16 +137,21 @@ def resource_path(relative_path):
 def open_link_in_browser(link):
     if not link:
         return
+    logger = get_default_logger()
+    logger.debug(f'open_link: {link}')
     try:
         if hasattr(os, 'startfile'):
             os.startfile(link)
             return
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.debug('os.startfile failed', exc_info=exc)
     try:
-        webbrowser.open(link, new=2)
-    except Exception:
+        if not webbrowser.open(link, new=2):
+            raise RuntimeError('webbrowser open returned False')
+    except Exception as exc:
+        logger.debug('webbrowser open fallback', exc_info=exc)
         webbrowser.open(link)
+
 
 def toast_setup():
     try:
@@ -177,12 +182,13 @@ def show_toast(title, body, link):
             zroya.show(
                 template,
                 on_click=_open_link,
-                on_action=lambda *_: _open_link()
+                on_action=_open_link
             )
     except SystemError as e:
         return e
     else:
         return None
+
 
 def send_email(subject, content, email, passwd):
     msg = EmailMessage()
