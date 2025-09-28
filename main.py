@@ -133,6 +133,21 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+
+def open_link_in_browser(link):
+    if not link:
+        return
+    try:
+        if hasattr(os, 'startfile'):
+            os.startfile(link)
+            return
+    except OSError:
+        pass
+    try:
+        webbrowser.open(link, new=2)
+    except Exception:
+        webbrowser.open(link)
+
 def toast_setup():
     try:
         if zroya:
@@ -154,9 +169,16 @@ def show_toast(title, body, link):
                 template.setImage(resource_path("image.ico"))
             template.setFirstLine(title)
             template.setSecondLine(body)
-            def onClickHandler(notification_id):
-                webbrowser.open_new(link)
-            zroya.show(template, on_click=onClickHandler)
+            template.addAction('게시물 열기')
+
+            def _open_link(*_):
+                open_link_in_browser(link)
+
+            zroya.show(
+                template,
+                on_click=_open_link,
+                on_action=lambda *_: _open_link()
+            )
     except SystemError as e:
         return e
     else:
